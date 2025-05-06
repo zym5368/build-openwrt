@@ -97,14 +97,14 @@ jobs:
           #sudo -E apt-get -y full-upgrade
           sudo -E apt-get -y autoremove --purge
           sudo -E apt-get clean
-          sudo mkdir -p /workdir
-          sudo chown ${USER}:${GROUPS} /workdir
+          sudo mkdir -p /home/runner/work/build-openwrt/build-openwrt/workdir
+          sudo chown ${USER}:${GROUPS} /home/runner/work/build-openwrt/build-openwrt/workdir
           sudo timedatectl set-timezone "${TZ}"
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Clone source code [ ${{ inputs.source_branch }} ]
         id: codes
-        working-directory: /workdir
+        working-directory: /home/runner/work/build-openwrt/build-openwrt/workdir
         if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
         run: |
           # Set up compilation source code
@@ -131,7 +131,7 @@ jobs:
 
           # Clone source code
           git clone -q --single-branch --depth=1 --branch=${REPO_BRANCH} ${REPO_URL} openwrt
-          ln -sf /workdir/openwrt ${GITHUB_WORKSPACE}/openwrt
+          ln -sf /home/runner/work/build-openwrt/build-openwrt/workdir/openwrt ${GITHUB_WORKSPACE}/openwrt
 
           # Set output information
           echo "build_tag=OpenWrt_${TAGS_NAME}_${{ inputs.openwrt_storage }}_$(date +"%Y.%m")" >> ${GITHUB_OUTPUT}
