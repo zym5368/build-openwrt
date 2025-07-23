@@ -151,7 +151,12 @@ jobs:
 
       - name: Install feeds
         run: cd openwrt/ && ./scripts/feeds install -a
-
+        
+      - name: Patch qttools Makefile for Qt5
+        run: |
+          # 强制替换 qttools Makefile 里的 Qt6DBus 为 Qt5DBus
+          sed -i 's/Qt6DBus/Qt5DBus/g' openwrt/feeds/packages/libs/qttools/Makefile
+          
       - name: Load custom configuration
         run: |
           [[ -d "files" ]] && mv -f files openwrt/files
