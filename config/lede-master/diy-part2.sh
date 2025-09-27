@@ -19,8 +19,8 @@ sed -i 's/TARGET_rockchip/TARGET_rockchip\|\|TARGET_armvirt/g' package/lean/auto
 sed -i "s|DISTRIB_DESCRIPTION='.*'|DISTRIB_DESCRIPTION='YMOS'|g" ${GITHUB_WORKSPACE}/openwrt/package/lean/default-settings/files/zzz-default-settings
 
 # Modify default IP（FROM 192.168.1.1 CHANGE TO 192.168.31.4）
-sed -i 's/192.168.1.1/192.168.110.115/g' package/base-files/luci2/bin/config_generate
-sed -i "s/hostname='LEDE'/hostname='YMOS'/g" package/base-files/luci2/bin/config_generate
+sed -i 's/192.168.1.1/192.168.31.28/g' package/base-files/luci2/bin/config_generate
+sed -i "s/hostname='LEDE'/hostname='WMOS'/g" package/base-files/luci2/bin/config_generate
 
 # Replace the default software source
 # sed -i 's#openwrt.proxy.ustclug.org#mirrors.bfsu.edu.cn\\/openwrt#' package/lean/default-settings/files/zzz-default-settings
