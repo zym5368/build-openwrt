@@ -101,7 +101,15 @@ jobs:
           sudo chown ${USER}:${GROUPS} /home/runner/work/build-openwrt/build-openwrt/workdir
           sudo timedatectl set-timezone "${TZ}"
           echo "status=success" >> ${GITHUB_OUTPUT}
-
+      - name: Install build dependencies
+        if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential gcc g++ binutils make bzip2 flex gawk gettext git gperf patch bc ccache rsync subversion unzip xz-utils file wget curl python3 python3-distutils python3-pip pkg-config \
+            libncurses-dev libncurses5-dev libncursesw5-dev zlib1g-dev libssl-dev libelf-dev liblz4-tool locales ca-certificates
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
       - name: Clone source code [ ${{ inputs.source_branch }} ]
         id: codes
         working-directory: /home/runner/work/build-openwrt/build-openwrt/workdir
