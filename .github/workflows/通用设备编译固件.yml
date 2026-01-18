@@ -163,7 +163,13 @@ jobs:
       - name: Patch qttools Makefile for Qt5
         run: |
           # 强制替换 qttools Makefile 里的 Qt6DBus 为 Qt5DBus
+          # 修复主Makefile
           sed -i 's/Qt6DBus/Qt5DBus/g' openwrt/feeds/packages/libs/qttools/Makefile
+          sed -i 's/libQt6DBus/libQt5DBus/g' openwrt/feeds/packages/libs/qttools/Makefile
+          # 修复所有子目录中的.pro文件和Makefile（如果存在）
+          find openwrt/feeds/packages/libs/qttools -type f \( -name "*.pro" -o -name "Makefile*" \) -exec sed -i 's/Qt6DBus/Qt5DBus/g' {} \;
+          find openwrt/feeds/packages/libs/qttools -type f \( -name "*.pro" -o -name "Makefile*" \) -exec sed -i 's/libQt6DBus/libQt5DBus/g' {} \;
+          echo "已修复qttools中的Qt6DBus引用"
           
       - name: Load custom configuration
         run: |
@@ -178,6 +184,8 @@ jobs:
         run: |
           cd openwrt/
           make defconfig
+          # 在编译前再次修复qttools中的Qt6DBus引用（包括编译时生成的文件）
+          find . -path "*/qttools*" -type f \( -name "*.pro" -o -name "Makefile*" \) -exec sed -i 's/Qt6DBus/Qt5DBus/g' {} \; 2>/dev/null || true
           make download -j8
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
@@ -187,6 +195,10 @@ jobs:
         run: |
           cd openwrt/
           echo -e "$(nproc) thread compile"
+          # 在编译前最后一次修复qttools中的Qt6DBus引用
+          # 修复build_dir中可能已经生成的Makefile
+          find build_dir -path "*qttools*" -type f -name "Makefile*" -exec sed -i 's/libQt6DBus/libQt5DBus/g' {} \; 2>/dev/null || true
+          find build_dir -path "*qttools*" -type f -name "*.pro" -exec sed -i 's/Qt6DBus/Qt5DBus/g' {} \; 2>/dev/null || true
           make -j$(($(nproc) + 1)) V=s || make -j1 || make -j1 V=s
           echo "status=success" >> ${GITHUB_OUTPUT}
 
