@@ -52,7 +52,8 @@ sed -i "s/hostname='LEDE'/hostname='YMOS'/g" package/base-files/luci/bin/config_
 #
 # ------------------------------- Other ends -------------------------------
 # ==========================================
-# 修复 qttools 编译问题 - 直接复制到 diy-part2.sh
+# 修复 qttools 编译问题 - 修复后的版本
+# 直接复制到 config/lede-master/diy-part2.sh
 # ==========================================
 echo "=========================================="
 echo "开始修复 qttools 编译问题..."
@@ -67,12 +68,14 @@ if [ -f "feeds/packages/libs/qttools/Makefile" ]; then
         sed -i '/^include.*package.mk/a\\n# 禁用 GCC 13.3 的悬空引用警告\nTARGET_CXXFLAGS += -Wno-dangling-reference' feeds/packages/libs/qttools/Makefile
     fi
     
-    # 替换 Build/Configure 部分 - 使用最简单的方法
+    # 替换 Build/Configure 部分
+    # 注意：在 shell 脚本中，$$ 会被解释为进程 ID，所以需要使用 \$\$ 来转义
+    # 这样在 Makefile 中会被转义为 $，用于匹配行尾
     sed -i '/^define Build\/Configure$/,/^endef$/c\
 define Build/Configure\
 	cd $$(PKG_BUILD_DIR) && \\\
 		sed -i '\''s/qtHaveModule(dbus): SUBDIRS += qdbus/# qtHaveModule(dbus): SUBDIRS += qdbus # Disabled: qtbase has -no-dbus/'\'' src/src.pro && \\\
-		sed -i '\''s/^requires(qtConfig(qdbus))$$/# requires(qtConfig(qdbus)) # Disabled: qtbase has -no-dbus/'\'' src/qdbus/qdbus.pro && \\\
+		sed -i '\''s/^requires(qtConfig(qdbus))\$\$/# requires(qtConfig(qdbus)) # Disabled: qtbase has -no-dbus/'\'' src/qdbus/qdbus.pro && \\\
 		sed -i '\''s|qtConfig(dom): SUBDIRS = qdbus|# qtConfig(dom): SUBDIRS = qdbus # Disabled: qtbase has -no-dbus|'\'' src/qdbus/qdbus.pro && \\\
 		sed -i '\''s|SUBDIRS += qdbusviewer|# SUBDIRS += qdbusviewer # Disabled: qdbus is disabled|'\'' src/qdbus/qdbus.pro && \\\
 		(echo '\'''\''; echo '\''# Add CXXFLAGS to disable dangling-reference warning'\''; echo '\''QMAKE_CXXFLAGS += -Wno-dangling-reference'\'') >> qttools.pro && \\\
@@ -85,3 +88,4 @@ endef' feeds/packages/libs/qttools/Makefile
 else
     echo "警告: 找不到 feeds/packages/libs/qttools/Makefile，跳过修复"
 fi
+
