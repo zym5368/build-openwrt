@@ -159,7 +159,20 @@ jobs:
 
       - name: Install feeds
         run: cd openwrt/ && ./scripts/feeds install -a
-        
+
+      - name: Remove uwsgi from .config (rmuwsgi)
+        run: |
+          cd openwrt
+          # 如果 .config 不存在，可以在这里生成或拷贝默认 .config（如需要）
+          # 删除精确匹配和可能的变体（如 CONFIG_PACKAGE_uwsgi-xxx）
+          sed -i '/^CONFIG_PACKAGE_uwsgi=/d' .config || true
+          sed -i '/^CONFIG_PACKAGE_uwsgi-/d' .config || true
+          # 另外也删除任何包含 uwsgi 的配置项（可选）
+          sed -i '/uwsgi/d' .config || true
+          # 输出校验结果
+          echo "==== uwsgi entries in .config (should be none) ===="
+          grep -n -E 'uwsgi' .config || echo "uwsgi not present in .config"
+      
       - name: Patch qttools Makefile for Qt5
         run: |
           # 强制替换 qttools Makefile 里的 Qt6DBus 为 Qt5DBus
