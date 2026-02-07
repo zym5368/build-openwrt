@@ -220,12 +220,14 @@ jobs:
         run: df -hT
 
       # 推送格式与 monitor-webui-app 一致：token + title + placeholders（custom_plaintext）
+      # 不在 if 里使用 secrets，改为步骤内判断；未配置 PUSH_SERVICE_TOKEN 时自动跳过
       - name: Notify push service (compile result)
-        if: ${{ always() && secrets.PUSH_SERVICE_TOKEN != '' }}
+        if: ${{ always() }}
         env:
           PUSH_TOKEN: ${{ secrets.PUSH_SERVICE_TOKEN }}
           PUSH_URL: ${{ env.PUSH_SERVICE_URL }}
         run: |
+          if [ -z "$PUSH_TOKEN" ]; then echo "PUSH_SERVICE_TOKEN 未配置，跳过推送"; exit 0; fi
           STATUS="${{ steps.compile.outputs.status }}"
           if [ "$STATUS" = "success" ]; then
             TITLE="OpenWrt 编译成功"
