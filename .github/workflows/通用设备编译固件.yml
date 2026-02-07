@@ -22,13 +22,12 @@ on:
           - immortalwrt-master
           - Lienol-master
       config_profile:
-        description: "Config set (config directory, for parallel testing)"
+        description: "Config set (default = use source branch; test1/test2 = parallel test)"
         required: false
         default: "default"
         type: choice
         options:
           - default
-          - lede-master
           - lede-master-test1
           - lede-master-test2
 
