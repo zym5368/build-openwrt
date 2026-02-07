@@ -44,6 +44,9 @@ env:
   FILE_DATE: ${{ github.run_number }}
   UPLOAD_COWTRANSFER: false
   UPLOAD_WETRANSFER: false
+  # 自建推送服务（与 monitor-webui-app 一致：Message Nest API）
+  # 在仓库 Settings → Secrets 中配置 PUSH_SERVICE_TOKEN 后生效
+  PUSH_SERVICE_URL: https://mes.dgpyy.com/api/v2/message/send
 
 jobs:
   build:
@@ -215,6 +218,31 @@ jobs:
       - name: Check space usage
         if: ${{ !cancelled() }}
         run: df -hT
+
+      # 推送格式与 monitor-webui-app 一致：token + title + placeholders（custom_plaintext）
+      - name: Notify push service (compile result)
+        if: ${{ always() && secrets.PUSH_SERVICE_TOKEN != '' }}
+        env:
+          PUSH_TOKEN: ${{ secrets.PUSH_SERVICE_TOKEN }}
+          PUSH_URL: ${{ env.PUSH_SERVICE_URL }}
+        run: |
+          STATUS="${{ steps.compile.outputs.status }}"
+          if [ "$STATUS" = "success" ]; then
+            TITLE="OpenWrt 编译成功"
+            CONTENT="配置: ${{ env.DEVICE_NAME }}"
+          else
+            TITLE="OpenWrt 编译失败"
+            CONTENT="配置: ${{ env.DEVICE_NAME }}，请查看日志"
+          fi
+          RUN_LINK="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          CONTENT="${CONTENT}\n\n运行: ${RUN_LINK}"
+          BODY=$(jq -n \
+            --arg token "$PUSH_TOKEN" \
+            --arg title "$TITLE" \
+            --arg content "$CONTENT" \
+            '{token: $token, title: $title, placeholders: {system: $content}}')
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PUSH_URL" -H "Content-Type: application/json" -d "$BODY")
+          [ "$HTTP_CODE" = "200" ] && echo "推送已发送 (HTTP $HTTP_CODE)" || echo "推送请求返回 HTTP $HTTP_CODE"
 
       - name: Upload bin directory
         uses: actions/upload-artifact@main
