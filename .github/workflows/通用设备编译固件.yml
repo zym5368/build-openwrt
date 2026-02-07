@@ -1,6 +1,8 @@
 #============================================================================================
 # https://github.com/ophub/amlogic-s9xxx-openwrt
 # Description: Build OpenWrt
+# 多套配置并行：config_profile 选 lede-master / lede-master-test1 / lede-master-test2 等，
+# 需在仓库中建立对应目录 config/<profile>/ 并放入 config、diy-part1.sh、diy-part2.sh
 #============================================================================================
 
 name: 通用设备编译固件
@@ -10,26 +12,36 @@ on:
   workflow_dispatch:
     inputs:
       source_branch:
-        description: "Select the source branch"
+        description: "Select the source branch (repo to clone)"
         required: false
-        default: "openwrt-main"
+        default: "lede-master"
         type: choice
         options:
           - openwrt-main
           - lede-master
           - immortalwrt-master
           - Lienol-master
+      config_profile:
+        description: "Config set (config directory, for parallel testing)"
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - lede-master
+          - lede-master-test1
+          - lede-master-test2
 
 env:
-  FEEDS_CONF: config/${{ inputs.source_branch }}/feeds.conf.default
-  CONFIG_FILE: config/${{ inputs.source_branch }}/config
-  DIY_P1_SH: config/${{ inputs.source_branch }}/diy-part1.sh
-  DIY_P2_SH: config/${{ inputs.source_branch }}/diy-part2.sh
+  FEEDS_CONF: ${{ format('config/{0}/feeds.conf.default', inputs.config_profile == 'default' && inputs.source_branch || inputs.config_profile) }}
+  CONFIG_FILE: ${{ format('config/{0}/config', inputs.config_profile == 'default' && inputs.source_branch || inputs.config_profile) }}
+  DIY_P1_SH: ${{ format('config/{0}/diy-part1.sh', inputs.config_profile == 'default' && inputs.source_branch || inputs.config_profile) }}
+  DIY_P2_SH: ${{ format('config/{0}/diy-part2.sh', inputs.config_profile == 'default' && inputs.source_branch || inputs.config_profile) }}
   UPLOAD_BIN_DIR: true
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
-  DEVICE_NAME: ${{ inputs.source_branch || 'generic' }}
+  DEVICE_NAME: ${{ inputs.config_profile == 'default' && inputs.source_branch || inputs.config_profile || 'generic' }}
   FILE_DATE: ${{ github.run_number }}
   UPLOAD_COWTRANSFER: false
   UPLOAD_WETRANSFER: false
@@ -108,7 +120,7 @@ jobs:
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Install build dependencies
-        if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
+        if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -120,7 +132,7 @@ jobs:
       - name: Clone source code [ ${{ inputs.source_branch }} ]
         id: codes
         working-directory: /home/runner/work/build-openwrt/build-openwrt/workdir
-        if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
+        if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         run: |
           # Set up compilation source code
           if [[ "${{ inputs.source_branch }}" == *"openwrt"* ]]; then
