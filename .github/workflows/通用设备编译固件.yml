@@ -19,7 +19,7 @@ on:
           - lede-master
           - immortalwrt-master
           - Lienol-master
-      
+
 env:
   FEEDS_CONF: config/${{ inputs.source_branch }}/feeds.conf.default
   CONFIG_FILE: config/${{ inputs.source_branch }}/config
@@ -29,6 +29,10 @@ env:
   UPLOAD_FIRMWARE: true
   UPLOAD_RELEASE: true
   TZ: Asia/Shanghai
+  DEVICE_NAME: ${{ inputs.source_branch || 'generic' }}
+  FILE_DATE: ${{ github.run_number }}
+  UPLOAD_COWTRANSFER: false
+  UPLOAD_WETRANSFER: false
 
 jobs:
   build:
@@ -42,7 +46,7 @@ jobs:
           echo "=============================================================================="
           df -hT
           echo "=============================================================================="
-  
+
       - name: "Optimize Disk Space"
         uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
         with:
@@ -63,10 +67,10 @@ jobs:
           npm_prune: "True"
           npm_clean: "True"
           os_swap: "True"
-  
+
       - name: Freeing up disk space
         uses: easimon/maximize-build-space@master
-        with: 
+        with:
           root-reserve-mb: 2048
           swap-size-mb: 1
           remove-dotnet: 'true'
@@ -74,14 +78,14 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
-  
+
       - name: Free up disk space complete
         run: |
           echo "Free up disk space complete"
           echo "=============================================================================="
           df -hT
           echo "=============================================================================="
-        
+
       - name: Checkout
         uses: actions/checkout@main
 
@@ -92,7 +96,8 @@ jobs:
         run: |
           sudo -E apt-get -y update
           sudo -E apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mongodb* moby* || true
-          sudo -E apt-get -y install $(curl -fsSL https://is.gd/depend_ubuntu2204_openwrt)
+          sudo -E apt-get -y install $(curl -fsSL https://is.gd/depend_ubuntu2204_openwrt) || \
+          sudo -E apt-get -y install build-essential gcc g++ binutils make bzip2 flex gawk gettext git gperf patch bc ccache rsync subversion unzip xz-utils file wget curl python3 python3-distutils python3-pip pkg-config libncurses-dev libncurses5-dev libncursesw5-dev zlib1g-dev libssl-dev libelf-dev liblz4-tool locales ca-certificates
           sudo -E systemctl daemon-reload
           #sudo -E apt-get -y full-upgrade
           sudo -E apt-get -y autoremove --purge
@@ -101,6 +106,7 @@ jobs:
           sudo chown ${USER}:${GROUPS} /home/runner/work/build-openwrt/build-openwrt/workdir
           sudo timedatectl set-timezone "${TZ}"
           echo "status=success" >> ${GITHUB_OUTPUT}
+
       - name: Install build dependencies
         if: ${{ steps.init.outputs.status }} == 'success' && !cancelled()
         run: |
@@ -110,6 +116,7 @@ jobs:
             libncurses-dev libncurses5-dev libncursesw5-dev zlib1g-dev libssl-dev libelf-dev liblz4-tool locales ca-certificates
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
+
       - name: Clone source code [ ${{ inputs.source_branch }} ]
         id: codes
         working-directory: /home/runner/work/build-openwrt/build-openwrt/workdir
@@ -142,7 +149,7 @@ jobs:
           ln -sf /home/runner/work/build-openwrt/build-openwrt/workdir/openwrt ${GITHUB_WORKSPACE}/openwrt
 
           # Set output information
-          echo "build_tag=OpenWrt_${TAGS_NAME}_${{ inputs.openwrt_storage }}_$(date +"%Y.%m")" >> ${GITHUB_OUTPUT}
+          echo "build_tag=OpenWrt_${TAGS_NAME}_$(date +"%Y.%m")" >> ${GITHUB_OUTPUT}
           echo -e "REPO_URL: [ ${REPO_URL} ]\nREPO_BRANCH: [ ${REPO_BRANCH} ]\nTAGS_NAME: [ ${TAGS_NAME} ]"
           df -hT ${PWD}
           echo "status=success" >> ${GITHUB_OUTPUT}
@@ -160,30 +167,6 @@ jobs:
       - name: Install feeds
         run: cd openwrt/ && ./scripts/feeds install -a
 
-      - name: Remove uwsgi from .config (rmuwsgi)
-        run: |
-          cd openwrt
-          # 如果 .config 不存在，可以在这里生成或拷贝默认 .config（如需要）
-          # 删除精确匹配和可能的变体（如 CONFIG_PACKAGE_uwsgi-xxx）
-          sed -i '/^CONFIG_PACKAGE_uwsgi=/d' .config || true
-          sed -i '/^CONFIG_PACKAGE_uwsgi-/d' .config || true
-          # 另外也删除任何包含 uwsgi 的配置项（可选）
-          sed -i '/uwsgi/d' .config || true
-          # 输出校验结果
-          echo "==== uwsgi entries in .config (should be none) ===="
-          grep -n -E 'uwsgi' .config || echo "uwsgi not present in .config"
-      
-      - name: Patch qttools Makefile for Qt5
-        run: |
-          # 强制替换 qttools Makefile 里的 Qt6DBus 为 Qt5DBus
-          # 修复主Makefile
-          sed -i 's/Qt6DBus/Qt5DBus/g' openwrt/feeds/packages/libs/qttools/Makefile
-          sed -i 's/libQt6DBus/libQt5DBus/g' openwrt/feeds/packages/libs/qttools/Makefile
-          # 修复所有子目录中的.pro文件和Makefile（如果存在）
-          find openwrt/feeds/packages/libs/qttools -type f \( -name "*.pro" -o -name "Makefile*" \) -exec sed -i 's/Qt6DBus/Qt5DBus/g' {} \;
-          find openwrt/feeds/packages/libs/qttools -type f \( -name "*.pro" -o -name "Makefile*" \) -exec sed -i 's/libQt6DBus/libQt5DBus/g' {} \;
-          echo "已修复qttools中的Qt6DBus引用"
-          
       - name: Load custom configuration
         run: |
           [[ -d "files" ]] && mv -f files openwrt/files
@@ -192,13 +175,20 @@ jobs:
           cd openwrt/
           ${GITHUB_WORKSPACE}/${DIY_P2_SH}
 
+      - name: Remove uwsgi from .config (rmuwsgi)
+        run: |
+          cd openwrt
+          sed -i '/^CONFIG_PACKAGE_uwsgi=/d' .config || true
+          sed -i '/^CONFIG_PACKAGE_uwsgi-/d' .config || true
+          sed -i '/uwsgi/d' .config || true
+          echo "==== uwsgi entries in .config (should be none) ===="
+          grep -n -E 'uwsgi' .config || echo "uwsgi not present in .config"
+
       - name: Download package
         id: package
         run: |
           cd openwrt/
           make defconfig
-          # 在编译前再次修复qttools中的Qt6DBus引用（包括编译时生成的文件）
-          find . -path "*/qttools*" -type f \( -name "*.pro" -o -name "Makefile*" \) -exec sed -i 's/Qt6DBus/Qt5DBus/g' {} \; 2>/dev/null || true
           make download -j8
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
@@ -208,13 +198,8 @@ jobs:
         run: |
           cd openwrt/
           echo -e "$(nproc) thread compile"
-          # 在编译前最后一次修复qttools中的Qt6DBus引用
-          # 修复build_dir中可能已经生成的Makefile
-          find build_dir -path "*qttools*" -type f -name "Makefile*" -exec sed -i 's/libQt6DBus/libQt5DBus/g' {} \; 2>/dev/null || true
-          find build_dir -path "*qttools*" -type f -name "*.pro" -exec sed -i 's/Qt6DBus/Qt5DBus/g' {} \; 2>/dev/null || true
           make -j$(($(nproc) + 1)) V=s || make -j1 || make -j1 V=s
           echo "status=success" >> ${GITHUB_OUTPUT}
-
 
       - name: Check space usage
         if: (!cancelled())
@@ -270,7 +255,6 @@ jobs:
           keep_minimum_runs: 3
           token: ${{ secrets.GH_TOKEN }}
           body: |
-
             ### OpenWrt Image information
             - Default IP: 192.168.1.1
             - Default username: root
@@ -281,4 +265,3 @@ jobs:
             - Login to OpenWrt → System → Amlogic Service → Install OpenWrt
             ### OpenWrt Image Verification
             - sha256sum
-    
