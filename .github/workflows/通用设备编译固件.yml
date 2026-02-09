@@ -44,16 +44,18 @@ env:
   FILE_DATE: ${{ github.run_number }}
   UPLOAD_COWTRANSFER: false
   UPLOAD_WETRANSFER: false
-  # 自建推送服务（与 monitor-webui-app 一致：Message Nest API）
+  # 自建推送服务
   # 在仓库 Settings → Secrets 中配置 PUSH_SERVICE_TOKEN 后生效
   PUSH_SERVICE_URL: https://mes.dgpyy.com/api/v2/message/send
 
 jobs:
+  # 仅当触发者为仓库拥有者时执行（避免 fork 或他人触发误跑）
   build:
     runs-on: ubuntu-22.04
     if: ${{ github.event.repository.owner.id == github.event.sender.id }}
 
     steps:
+      # 打印当前磁盘占用，便于对比优化前后
       - name: Before freeing up disk space
         run: |
           echo "Before freeing up disk space"
@@ -61,6 +63,7 @@ jobs:
           df -hT
           echo "=============================================================================="
 
+      # 清理系统空间：卸载 Docker/apt/npm 等缓存，保留 GCC/Clang 等编译所需
       - name: "Optimize Disk Space"
         uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
         with:
@@ -82,6 +85,7 @@ jobs:
           npm_clean: "True"
           os_swap: "True"
 
+      # 进一步腾空间：移除 .NET/Android/Haskell/CodeQL/Docker 镜像等，扩大可用磁盘
       - name: Freeing up disk space
         uses: easimon/maximize-build-space@master
         with:
@@ -93,6 +97,7 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
+      # 再次打印磁盘占用，确认空间已释放
       - name: Free up disk space complete
         run: |
           echo "Free up disk space complete"
@@ -100,9 +105,11 @@ jobs:
           df -hT
           echo "=============================================================================="
 
+      # 拉取当前仓库代码（含 config、diy 脚本等）
       - name: Checkout
         uses: actions/checkout@main
 
+      # 初始化环境：安装 OpenWrt 编译依赖（is.gd 或本地包列表）、创建 workdir、设时区
       - name: Initialization environment
         id: init
         env:
@@ -121,16 +128,18 @@ jobs:
           sudo timedatectl set-timezone "${TZ}"
           echo "status=success" >> ${GITHUB_OUTPUT}
 
+      # 再次安装/确认构建依赖（gcc、make、libncurses 等），仅在上一步成功时执行
       - name: Install build dependencies
         if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential gcc g++ binutils make bzip2 flex gawk gettext git gperf patch bc ccache rsync subversion unzip xz-utils file wget curl python3 python3-distutils python3-pip pkg-config \
-            libncurses-dev libncurses5-dev libncursesw5-dev zlib1g-dev libssl-dev libelf-dev liblz4-tool locales ca-certificates
+            libncurses-dev libncurses5-dev libncursesw5-dev zlib1g-dev libssl-dev libelf-dev liblz4-tool locales ca-certificates qemu-utils
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
+      # 根据 source_branch 选择仓库并浅克隆到 workdir/openwrt，并做符号链接到 workspace
       - name: Clone source code [ ${{ inputs.source_branch }} ]
         id: codes
         working-directory: /home/runner/work/build-openwrt/build-openwrt/workdir
@@ -168,6 +177,7 @@ jobs:
           df -hT ${PWD}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
+      # 若存在则复制自定义 feeds.conf.default，并执行 diy-part1（feeds 更新前：改 feeds 等）
       - name: Load custom feeds
         run: |
           [[ -f "${FEEDS_CONF}" ]] && cp -f ${FEEDS_CONF} openwrt/feeds.conf.default
@@ -175,12 +185,15 @@ jobs:
           cd openwrt/
           ${GITHUB_WORKSPACE}/${DIY_P1_SH}
 
+      # 从 feeds.conf.default 拉取所有 feed 源码到 feeds/
       - name: Update feeds
         run: cd openwrt/ && ./scripts/feeds update -a
 
+      # 将 feed 中的软件包链接到 package/feeds/，供编译使用
       - name: Install feeds
         run: cd openwrt/ && ./scripts/feeds install -a
 
+      # 复制 files 目录和 .config，并执行 diy-part2（feeds 更新后：改 IP、主题、包等）
       - name: Load custom configuration
         run: |
           [[ -d "files" ]] && mv -f files openwrt/files
@@ -189,6 +202,7 @@ jobs:
           cd openwrt/
           ${GITHUB_WORKSPACE}/${DIY_P2_SH}
 
+      # 从 .config 中删除 uwsgi 相关项，避免因 uwsgi 配置问题导致编译异常
       - name: Remove uwsgi from .config (rmuwsgi)
         run: |
           cd openwrt
@@ -198,6 +212,7 @@ jobs:
           echo "==== uwsgi entries in .config (should be none) ===="
           grep -n -E 'uwsgi' .config || echo "uwsgi not present in .config"
 
+      # 根据 .config 生成完整配置并下载所有需要的源码包到 dl/
       - name: Download package
         id: package
         run: |
@@ -207,6 +222,7 @@ jobs:
           find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
+      # 执行 make 编译 OpenWrt 固件；成功则输出 status=success 供后续步骤判断
       - name: Compile the OpenWrt
         id: compile
         run: |
@@ -215,12 +231,12 @@ jobs:
           make -j$(($(nproc) + 1)) V=s || make -j1 || make -j1 V=s
           echo "status=success" >> ${GITHUB_OUTPUT}
 
+      # 编译结束后查看磁盘占用
       - name: Check space usage
         if: ${{ !cancelled() }}
         run: df -hT
 
-      # 推送格式与 monitor-webui-app 一致：token + title + placeholders（custom_plaintext）
-      # 不在 if 里使用 secrets，改为步骤内判断；未配置 PUSH_SERVICE_TOKEN 时自动跳过
+      # 向自建推送服务发送编译结果（成功/失败 + 配置名 + 运行链接）；未配 token 则跳过
       - name: Notify push service (compile result)
         if: ${{ always() }}
         env:
@@ -231,10 +247,10 @@ jobs:
           STATUS="${{ steps.compile.outputs.status }}"
           if [ "$STATUS" = "success" ]; then
             TITLE="OpenWrt 编译成功"
-            CONTENT="配置: ${{ env.DEVICE_NAME }}"
+            CONTENT="【成功】配置: ${{ env.DEVICE_NAME }}"
           else
             TITLE="OpenWrt 编译失败"
-            CONTENT="配置: ${{ env.DEVICE_NAME }}，请查看日志"
+            CONTENT="【失败】配置: ${{ env.DEVICE_NAME }}，请查看日志"
           fi
           RUN_LINK="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           CONTENT="${CONTENT}\n\n运行: ${RUN_LINK}"
@@ -246,6 +262,7 @@ jobs:
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PUSH_URL" -H "Content-Type: application/json" -d "$BODY")
           [ "$HTTP_CODE" = "200" ] && echo "推送已发送 (HTTP $HTTP_CODE)" || echo "推送请求返回 HTTP $HTTP_CODE"
 
+      # 编译成功时，将 openwrt/bin 打包为 Artifact 供下载
       - name: Upload bin directory
         uses: actions/upload-artifact@main
         if: ${{ steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true' }}
@@ -253,15 +270,17 @@ jobs:
           name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: openwrt/bin
 
+      # 编译成功且开启固件上传时：进入固件目录、删除 packages 子目录，并写入 FIRMWARE 路径
       - name: Organize files
         id: organize
-        if: ${{ env.UPLOAD_FIRMWARE == 'true' && !cancelled() }}
+        if: ${{ steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true' && !cancelled() }}
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
           echo "::set-output name=status::success"
 
+      # 将整理后的固件目录打包为 Artifact（仅整理成功时）
       - name: Upload firmware directory
         uses: actions/upload-artifact@main
         if: ${{ steps.organize.outputs.status == 'success' && !cancelled() }}
@@ -269,9 +288,10 @@ jobs:
           name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
 
+      # 编译成功且开启 Release 时：生成 release 标签和 release.txt 正文（含 CowTransfer/WeTransfer 链接占位）
       - name: Generate release tag
         id: tag
-        if: ${{ env.UPLOAD_RELEASE == 'true' && !cancelled() }}
+        if: ${{ steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled() }}
         run: |
           echo "::set-output name=release_tag::$(date +"%Y.%m.%d-%H%M")"
           touch release.txt
@@ -279,9 +299,10 @@ jobs:
           [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer](${{ steps.wetransfer.outputs.url }})" >> release.txt
           echo "::set-output name=status::success"
 
+      # 编译成功且 tag 已生成时：创建 GitHub Release 并上传固件目录下所有文件
       - name: Upload firmware to release
         uses: softprops/action-gh-release@v1
-        if: ${{ steps.tag.outputs.status == 'success' && !cancelled() }}
+        if: ${{ steps.compile.outputs.status == 'success' && steps.tag.outputs.status == 'success' && !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -289,6 +310,7 @@ jobs:
           body_path: release.txt
           files: ${{ env.FIRMWARE }}/*
 
+      # 清理旧的工作流运行记录：保留最近 3 条、其余超过 1 天的删除，Release 正文为固件说明
       - name: Delete workflow runs
         uses: GitRML/delete-workflow-runs@main
         with:
