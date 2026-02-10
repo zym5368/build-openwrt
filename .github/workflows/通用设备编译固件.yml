@@ -200,6 +200,29 @@ jobs:
       - name: Install feeds
         run: cd openwrt/ && ./scripts/feeds install -a
 
+      # 修复 uwsgi 包：用 immortalwrt 的 net/uwsgi 替换，并保留 lede 的 files-luci-support，避免 nginx 报错
+      # 参考：https://github.com/immortalwrt/packages (net/uwsgi)、coolsnowwolf/packages (files-luci-support)
+      - name: Fix uwsgi package (immortalwrt + luci-support from feeds)
+        run: |
+          cd openwrt
+          if [ ! -d "feeds/packages/net/uwsgi" ]; then
+            echo "feeds/packages/net/uwsgi 不存在，跳过 uwsgi 修复"
+            exit 0
+          fi
+          mkdir -p package/uwsgi && cd package/uwsgi
+          git init -q
+          git remote add origin https://github.com/immortalwrt/packages.git
+          git config core.sparsecheckout true
+          echo "net/uwsgi/*" >> .git/info/sparse-checkout
+          git pull -q --depth 1 origin master
+          rm -rf net/uwsgi/files-luci-support
+          cd ../..
+          cp -r feeds/packages/net/uwsgi/files-luci-support package/uwsgi/net/uwsgi/
+          rm -rf feeds/packages/net/uwsgi/*
+          mv package/uwsgi/net/uwsgi/* feeds/packages/net/uwsgi/
+          rm -rf package/uwsgi
+          echo "uwsgi 已替换为 immortalwrt 版本并保留 feeds 中的 files-luci-support"
+
       # 复制 files 目录和 .config，并执行 diy-part2（feeds 更新后：改 IP、主题、包等）
       - name: Load custom configuration
         run: |
@@ -208,16 +231,6 @@ jobs:
           chmod +x ${DIY_P2_SH}
           cd openwrt/
           ${GITHUB_WORKSPACE}/${DIY_P2_SH}
-
-      # 从 .config 中删除 uwsgi 相关项，避免因 uwsgi 配置问题导致编译异常
-      - name: Remove uwsgi from .config (rmuwsgi)
-        run: |
-          cd openwrt
-          sed -i '/^CONFIG_PACKAGE_uwsgi=/d' .config || true
-          sed -i '/^CONFIG_PACKAGE_uwsgi-/d' .config || true
-          sed -i '/uwsgi/d' .config || true
-          echo "==== uwsgi entries in .config (should be none) ===="
-          grep -n -E 'uwsgi' .config || echo "uwsgi not present in .config"
 
       # 根据 .config 生成完整配置并下载所有需要的源码包到 dl/
       - name: Download package
