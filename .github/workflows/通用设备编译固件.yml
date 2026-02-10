@@ -128,14 +128,21 @@ jobs:
           sudo timedatectl set-timezone "${TZ}"
           echo "status=success" >> ${GITHUB_OUTPUT}
 
-      # 再次安装/确认构建依赖（gcc、make、libncurses 等），仅在上一步成功时执行
+      # 再次安装/确认构建依赖（与 coolsnowwolf/lede 官方 README 一致，Ubuntu 22/24）
+      # 参考：https://github.com/coolsnowwolf/lede
       - name: Install build dependencies
         if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential gcc g++ binutils make bzip2 flex gawk gettext git gperf patch bc ccache rsync subversion unzip xz-utils file wget curl python3 python3-distutils python3-pip pkg-config \
-            libncurses-dev libncurses5-dev libncursesw5-dev zlib1g-dev libssl-dev libelf-dev liblz4-tool locales ca-certificates qemu-utils
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext \
+            genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
+            libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool llvm lrzsz libnsl-dev ninja-build p7zip p7zip-full patch pkgconf \
+            python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion \
+            swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev \
+            locales ca-certificates file xz-utils bc
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
