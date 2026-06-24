@@ -43,9 +43,6 @@ env:
   FILE_DATE: ${{ github.run_number }}
   UPLOAD_COWTRANSFER: false
   UPLOAD_WETRANSFER: false
-  # 自建推送服务
-  # 在仓库 Settings → Secrets 中配置 PUSH_SERVICE_TOKEN 后生效
-  PUSH_SERVICE_URL: https://mes.dgpyy.com/api/v2/message/send
 
 jobs:
   # 仅当触发者为仓库拥有者时执行（避免 fork 或他人触发误跑）
@@ -88,7 +85,8 @@ jobs:
       - name: Freeing up disk space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 2048
+          # 新版 GitHub runner 上 2GB 预留会在 LVM 初始化后只剩约 100MB，apt 初始化会直接失败。
+          root-reserve-mb: 12288
           swap-size-mb: 1
           remove-dotnet: 'true'
           remove-android: 'true'
@@ -270,31 +268,55 @@ jobs:
         if: ${{ !cancelled() }}
         run: df -hT
 
-      # 向自建推送服务发送编译结果（成功/失败 + 配置名 + 运行链接）；未配 token 则跳过
-      - name: Notify push service (compile result)
+      # 通过 ServerChan3 发送编译结果（成功/失败 + 配置名 + 运行链接）；未配 secret 则跳过
+      - name: Notify ServerChan3 (compile result)
         if: ${{ always() }}
         env:
-          PUSH_TOKEN: ${{ secrets.PUSH_SERVICE_TOKEN }}
-          PUSH_URL: ${{ env.PUSH_SERVICE_URL }}
+          SERVERCHAN_SCKEY: ${{ secrets.SERVERCHAN_SCKEY }}
+          SERVERCHAN_UID: ${{ secrets.SERVERCHAN_UID }}
+          SERVERCHAN3_URL: ${{ secrets.SERVERCHAN3_URL }}
         run: |
-          if [ -z "$PUSH_TOKEN" ]; then echo "PUSH_SERVICE_TOKEN 未配置，跳过推送"; exit 0; fi
+          if [ -n "$SERVERCHAN3_URL" ]; then
+            PUSH_URL="$SERVERCHAN3_URL"
+          else
+            if [ -z "$SERVERCHAN_SCKEY" ]; then echo "SERVERCHAN_SCKEY 未配置，跳过 ServerChan3 推送"; exit 0; fi
+            if [ -z "$SERVERCHAN_UID" ] && printf '%s' "$SERVERCHAN_SCKEY" | grep -Eq '^sctp[0-9]+t'; then
+              SERVERCHAN_UID="$(printf '%s' "$SERVERCHAN_SCKEY" | sed -E 's/^sctp([0-9]+)t.*/\1/')"
+            fi
+            if [ -z "$SERVERCHAN_UID" ]; then echo "SERVERCHAN_UID 未配置且无法从 sendkey 推导，跳过 ServerChan3 推送"; exit 0; fi
+            PUSH_URL="https://${SERVERCHAN_UID}.push.ft07.com/send/${SERVERCHAN_SCKEY}.send"
+          fi
+
           STATUS="${{ steps.compile.outputs.status }}"
           if [ "$STATUS" = "success" ]; then
             TITLE="OpenWrt 编译成功"
-            CONTENT="【成功】配置: ${{ env.DEVICE_NAME }}"
+            SHORT="配置 ${{ env.DEVICE_NAME }} 成功"
           else
             TITLE="OpenWrt 编译失败"
-            CONTENT="【失败】配置: ${{ env.DEVICE_NAME }}，请查看日志"
+            SHORT="配置 ${{ env.DEVICE_NAME }} 失败"
           fi
           RUN_LINK="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          CONTENT="${CONTENT}\n\n运行: ${RUN_LINK}"
+          DESP=$(printf '**配置**: `%s`\n\n**源码**: `%s`\n\n**结果**: %s\n\n**运行**: [#%s](%s)\n' \
+            "${{ env.DEVICE_NAME }}" \
+            "${{ inputs.source_branch }}" \
+            "$TITLE" \
+            "${{ github.run_number }}" \
+            "$RUN_LINK")
           BODY=$(jq -n \
-            --arg token "$PUSH_TOKEN" \
             --arg title "$TITLE" \
-            --arg content "$CONTENT" \
-            '{token: $token, title: $title, placeholders: {system: $content}}')
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PUSH_URL" -H "Content-Type: application/json" -d "$BODY")
-          [ "$HTTP_CODE" = "200" ] && echo "推送已发送 (HTTP $HTTP_CODE)" || echo "推送请求返回 HTTP $HTTP_CODE"
+            --arg desp "$DESP" \
+            --arg short "$SHORT" \
+            '{title: $title, desp: $desp, short: $short, tags: "OpenWrt|GitHub Actions", template: "markdown"}')
+          HTTP_CODE=$(curl -s -o /tmp/serverchan3-response.json -w "%{http_code}" \
+            -X POST "$PUSH_URL" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" || true)
+          RESPONSE_CODE=$(jq -r '.code // .errno // empty' /tmp/serverchan3-response.json 2>/dev/null || true)
+          if [ "$HTTP_CODE" = "200" ] && [ "$RESPONSE_CODE" = "0" ]; then
+            echo "ServerChan3 推送已发送"
+          else
+            echo "ServerChan3 推送未确认成功 (HTTP ${HTTP_CODE}, code ${RESPONSE_CODE:-unknown})"
+          fi
 
       # 编译成功时，将 openwrt/bin 打包为 Artifact 供下载
       - name: Upload bin directory
