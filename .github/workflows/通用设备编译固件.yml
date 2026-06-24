@@ -81,18 +81,9 @@ jobs:
           npm_clean: "True"
           os_swap: "True"
 
-      # 进一步腾空间：移除 .NET/Android/Haskell/CodeQL/Docker 镜像等，扩大可用磁盘
-      - name: Freeing up disk space
-        uses: easimon/maximize-build-space@master
-        with:
-          # 新版 GitHub runner 上 2GB 预留会在 LVM 初始化后只剩约 100MB，apt 初始化会直接失败。
-          root-reserve-mb: 12288
-          swap-size-mb: 1
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
+      # 不再使用 easimon/maximize-build-space：新版 runner 上该 LVM 步骤会把 root 挤到约 100MB，
+      # 导致 apt update 在 Initialization environment 阶段 No space left on device。
+      # 上一步 optimizer 后 root 通常仍有约 120GB 可用，先保留原生 root 空间给 apt 和 OpenWrt 编译。
 
       # 再次打印磁盘占用，确认空间已释放
       - name: Free up disk space complete
