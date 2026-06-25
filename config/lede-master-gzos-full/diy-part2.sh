@@ -71,6 +71,10 @@ do
   sed -i 's#include ../../luci.mk#include $(TOPDIR)/feeds/luci/luci.mk#' "${makefile}"
 done
 
+# luci-app-openvpn-client pulls in openvpn-openssl, which already owns /etc/config/openvpn.
+# Keep the OpenVPN server LuCI page, but drop its duplicate default config to avoid rootfs clashes.
+rm -f feeds/luci/applications/luci-app-openvpn-server/root/etc/config/openvpn
+
 # Add luci-app-amlogic
 # svn co https://github.com/ophub/luci-app-amlogic/trunk/luci-app-amlogic package/luci-app-amlogic
 
