@@ -30,6 +30,7 @@ on:
           - default
           - lede-master-test1
           - lede-master-gzos-full
+          - lede-master-gzos-full-fw4
 
 env:
   FEEDS_CONF: ${{ format('config/{0}/feeds.conf.default', inputs.config_profile == 'default' && inputs.source_branch || inputs.config_profile) }}
