@@ -57,6 +57,37 @@ rm -rf \
 # luci-app-openvpn-client and luci-app-openvpn-server both ship an openvpn UCI
 # file in these feeds. Keep the server UI but remove the duplicate default file.
 rm -f feeds/luci/applications/luci-app-openvpn-server/root/etc/config/openvpn
+
+# ImmortalWrt packages/frp 0.69.x builds frpc/frps web assets through npm in a
+# shared web/node_modules directory. On GitHub runners this can fail with npm
+# ENOTEMPTY while renaming ajv, leaving missing dist files for Go embed. Keep
+# frpc/frps selected, but make this package build serial and clean npm leftovers
+# before the web asset build.
+for FRP_MAKEFILE in feeds/packages/net/frp/Makefile package/feeds/packages/frp/Makefile; do
+  [ -f "$FRP_MAKEFILE" ] || continue
+  sed -i 's/^PKG_BUILD_PARALLEL:=1/PKG_BUILD_PARALLEL:=0/' "$FRP_MAKEFILE"
+  awk '
+    BEGIN { in_block = 0 }
+    /^define Build\/Compile$/ {
+      print "define Build/Compile"
+      print "\trm -rf $(PKG_BUILD_DIR)/web/node_modules $(PKG_BUILD_DIR)/web/frpc/node_modules $(PKG_BUILD_DIR)/web/frps/node_modules $(PKG_BUILD_DIR)/web/.npm-cache"
+      print "\trm -rf $(PKG_BUILD_DIR)/web/frpc/dist $(PKG_BUILD_DIR)/web/frps/dist"
+      print "\t$(MAKE) -C $(PKG_BUILD_DIR)/web/frpc install"
+      print "\trm -rf $(PKG_BUILD_DIR)/web/node_modules/.ajv-* $(PKG_BUILD_DIR)/web/node_modules/.cache"
+      print "\t$(MAKE) -C $(PKG_BUILD_DIR)/web/frps install"
+      print "\t$(MAKE) -C $(PKG_BUILD_DIR) web"
+      print "\t$(call GoPackage/Build/Compile)"
+      in_block = 1
+      next
+    }
+    in_block && /^endef$/ {
+      print "endef"
+      in_block = 0
+      next
+    }
+    !in_block { print }
+  ' "$FRP_MAKEFILE" > "${FRP_MAKEFILE}.tmp" && mv "${FRP_MAKEFILE}.tmp" "$FRP_MAKEFILE"
+done
 #
 # ------------------------------- Main source ends -------------------------------
 

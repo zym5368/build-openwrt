@@ -306,11 +306,12 @@ jobs:
           fi
 
           STATUS="${{ steps.compile.outputs.status }}"
-          if [ "$STATUS" = "success" ]; then
-            TITLE="OpenWrt 编译成功"
+          COMPILE_CONCLUSION="${{ steps.compile.conclusion }}"
+          if [ "$STATUS" = "success" ] || [ "$COMPILE_CONCLUSION" = "success" ]; then
+            TITLE="OpenWrt 编译成功 - ${{ env.DEVICE_NAME }}"
             SHORT="配置 ${{ env.DEVICE_NAME }} 成功"
           else
-            TITLE="OpenWrt 编译失败"
+            TITLE="OpenWrt 编译失败 - ${{ env.DEVICE_NAME }}"
             SHORT="配置 ${{ env.DEVICE_NAME }} 失败"
           fi
           RUN_LINK="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
