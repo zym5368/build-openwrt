@@ -58,6 +58,22 @@ rm -rf \
 # file in these feeds. Keep the server UI but remove the duplicate default file.
 rm -f feeds/luci/applications/luci-app-openvpn-server/root/etc/config/openvpn
 
+# Linux 6.18 currently makes both kmod-iptables and kmod-nf-ipt package the
+# same ip_tables.ko/x_tables.ko files. Keep the modern kmod-nf-ipt owner used
+# by nft-compat and stop pulling the duplicate legacy package into rootfs.
+NETFILTER_MODULES_MK="package/kernel/linux/modules/netfilter.mk"
+if [ -f "$NETFILTER_MODULES_MK" ]; then
+  sed -i 's/^  DEPENDS:=+!LINUX_6_12:kmod-iptables$/  DEPENDS:=/' "$NETFILTER_MODULES_MK"
+fi
+
+# Boost.System is header-only and no longer emitted as a separate package by
+# the current Boost 1.91 feed. trojan-plus compiles without that runtime IPK;
+# remove only the stale package dependency and retain boost/program_options.
+for TROJAN_PLUS_MAKEFILE in feeds/small/trojan-plus/Makefile package/feeds/small/trojan-plus/Makefile; do
+  [ -f "$TROJAN_PLUS_MAKEFILE" ] || continue
+  sed -i 's/+boost +boost-system +boost-program_options/+boost +boost-program_options/' "$TROJAN_PLUS_MAKEFILE"
+done
+
 # ImmortalWrt packages/frp 0.69.x builds frpc/frps web assets through a shared
 # npm workspace. The upstream Makefiles run npm install repeatedly and use the
 # runner HOME cache, which can be root-owned in this workflow. Keep frpc/frps,
