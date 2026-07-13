@@ -58,11 +58,11 @@ rm -rf \
 # file in these feeds. Keep the server UI but remove the duplicate default file.
 rm -f feeds/luci/applications/luci-app-openvpn-server/root/etc/config/openvpn
 
-# ImmortalWrt packages/frp 0.69.x builds frpc/frps web assets through npm in a
-# shared web/node_modules directory. On GitHub runners this can fail with npm
-# ENOTEMPTY while renaming ajv, leaving missing dist files for Go embed. Keep
-# frpc/frps selected, but make this package build serial and clean npm leftovers
-# before the web asset build.
+# ImmortalWrt packages/frp 0.69.x builds frpc/frps web assets through a shared
+# npm workspace. The upstream Makefiles run npm install repeatedly and use the
+# runner HOME cache, which can be root-owned in this workflow. Keep frpc/frps,
+# but install the workspace once with a package-local HOME/cache, then build the
+# two dashboards sequentially before compiling Go.
 for FRP_MAKEFILE in feeds/packages/net/frp/Makefile package/feeds/packages/frp/Makefile; do
   [ -f "$FRP_MAKEFILE" ] || continue
   sed -i 's/^PKG_BUILD_PARALLEL:=1/PKG_BUILD_PARALLEL:=0/' "$FRP_MAKEFILE"
@@ -70,12 +70,12 @@ for FRP_MAKEFILE in feeds/packages/net/frp/Makefile package/feeds/packages/frp/M
     BEGIN { in_block = 0 }
     /^define Build\/Compile$/ {
       print "define Build/Compile"
-      print "\trm -rf $(PKG_BUILD_DIR)/web/node_modules $(PKG_BUILD_DIR)/web/frpc/node_modules $(PKG_BUILD_DIR)/web/frps/node_modules $(PKG_BUILD_DIR)/web/.npm-cache"
+      print "\trm -rf $(PKG_BUILD_DIR)/web/node_modules $(PKG_BUILD_DIR)/web/.npm-cache $(PKG_BUILD_DIR)/web/.npm-home"
       print "\trm -rf $(PKG_BUILD_DIR)/web/frpc/dist $(PKG_BUILD_DIR)/web/frps/dist"
-      print "\t$(MAKE) -C $(PKG_BUILD_DIR)/web/frpc install"
-      print "\trm -rf $(PKG_BUILD_DIR)/web/node_modules/.ajv-* $(PKG_BUILD_DIR)/web/node_modules/.cache"
-      print "\t$(MAKE) -C $(PKG_BUILD_DIR)/web/frps install"
-      print "\t$(MAKE) -C $(PKG_BUILD_DIR) web"
+      print "\tmkdir -p $(PKG_BUILD_DIR)/web/.npm-cache $(PKG_BUILD_DIR)/web/.npm-home"
+      print "\tcd $(PKG_BUILD_DIR)/web && HOME=$(PKG_BUILD_DIR)/web/.npm-home npm_config_cache=$(PKG_BUILD_DIR)/web/.npm-cache npm ci --no-audit --no-fund"
+      print "\tcd $(PKG_BUILD_DIR)/web && HOME=$(PKG_BUILD_DIR)/web/.npm-home npm_config_cache=$(PKG_BUILD_DIR)/web/.npm-cache npm run build --workspace=frpc"
+      print "\tcd $(PKG_BUILD_DIR)/web && HOME=$(PKG_BUILD_DIR)/web/.npm-home npm_config_cache=$(PKG_BUILD_DIR)/web/.npm-cache npm run build --workspace=frps"
       print "\t$(call GoPackage/Build/Compile)"
       in_block = 1
       next
