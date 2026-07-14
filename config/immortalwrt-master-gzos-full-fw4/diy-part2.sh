@@ -58,12 +58,17 @@ rm -rf \
 # file in these feeds. Keep the server UI but remove the duplicate default file.
 rm -f feeds/luci/applications/luci-app-openvpn-server/root/etc/config/openvpn
 
-# Linux 6.18 currently makes both kmod-iptables and kmod-nf-ipt package the
-# same ip_tables.ko/x_tables.ko files. Keep the modern kmod-nf-ipt owner used
-# by nft-compat and stop pulling the duplicate legacy package into rootfs.
+# Linux 6.18 moved the legacy table modules behind new *_LEGACY symbols while
+# the OpenWrt package metadata still maps the old compatibility symbols to the
+# same files. Keep kmod-nf-ipt as the single owner, enable the new symbols there
+# and stop pulling the duplicate kmod-iptables package into rootfs.
 NETFILTER_MODULES_MK="package/kernel/linux/modules/netfilter.mk"
 if [ -f "$NETFILTER_MODULES_MK" ]; then
-  sed -i 's/^  DEPENDS:=+!LINUX_6_12:kmod-iptables$/  DEPENDS:=/' "$NETFILTER_MODULES_MK"
+  sed -i \
+    -e 's/^  DEPENDS:=+!LINUX_6_12:kmod-iptables$/  DEPENDS:=/' \
+    -e '/^define KernelPackage\/nf-ipt$/,/^endef$/ s/^  KCONFIG:=$(KCONFIG_NF_IPT)$/  KCONFIG:=$(KCONFIG_NF_IPT) CONFIG_IP_NF_IPTABLES_LEGACY=m CONFIG_NETFILTER_XTABLES_LEGACY=y/' \
+    -e '/^define KernelPackage\/nf-ipt6$/,/^endef$/ s/^  KCONFIG:=$(KCONFIG_NF_IPT6)$/  KCONFIG:=$(KCONFIG_NF_IPT6) CONFIG_IP6_NF_IPTABLES_LEGACY=m/' \
+    "$NETFILTER_MODULES_MK"
 fi
 
 # Boost.System is header-only and no longer emitted as a separate package by
