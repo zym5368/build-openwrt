@@ -28,6 +28,7 @@ apply_gzos_defaults() {
   if [ -f package/lean/default-settings/files/zzz-default-settings ]; then
     sed -i \
       -e "s|DISTRIB_DESCRIPTION='.*'|DISTRIB_DESCRIPTION='${GZOS_DEFAULT_HOSTNAME} '|g" \
+      -e "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='${GZOS_RELEASE_REVISION}'|g" \
       -e "s|OPENWRT_RELEASE=\"[^\"]*\"|OPENWRT_RELEASE=\"${GZOS_DEFAULT_HOSTNAME} ${GZOS_RELEASE_REVISION}\"|g" \
       package/lean/default-settings/files/zzz-default-settings
   fi
@@ -58,7 +59,11 @@ case "\${current_lan_ip}" in
 esac
 
 if [ -f /etc/openwrt_release ]; then
-  sed -i '/^DISTRIB_DESCRIPTION=/d' /etc/openwrt_release
+  sed -i \
+    -e '/^DISTRIB_DESCRIPTION=/d' \
+    -e '/^DISTRIB_REVISION=/d' \
+    /etc/openwrt_release
+  echo "DISTRIB_REVISION='\${gzos_release_revision}'" >> /etc/openwrt_release
   echo "DISTRIB_DESCRIPTION='\${gzos_hostname} '" >> /etc/openwrt_release
 fi
 
