@@ -30,6 +30,7 @@ on:
           - default
           - lede-master-test1
           - lede-master-gzos-full
+          - lede-master-ymos-full
           - lede-master-gzos-full-fw4
           - immortalwrt-master-gzos-full-fw4
 
